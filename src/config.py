@@ -104,6 +104,12 @@ class TTSSettings(BaseModel):
     default_output_dir: str = Field("results", description="默认音频文件输出目录")
 
 
+class TushareSettings(BaseModel):
+    """Tushare 数据源配置"""
+
+    token: str = Field("", description="Tushare Token，注册后在个人中心获取")
+
+
 class MCPServerConfig(BaseModel):
     """Configuration for a single MCP server"""
 
@@ -161,6 +167,7 @@ class AppConfig(BaseModel):
     )
     mcp_config: Optional[MCPSettings] = Field(None, description="MCP configuration")
     tts_config: Optional[TTSSettings] = Field(None, description="TTS configuration")
+    tushare_config: Optional[TushareSettings] = Field(None, description="Tushare configuration")
 
     class Config:
         arbitrary_types_allowed = True
@@ -276,6 +283,10 @@ class Config:
             # 创建默认TTS配置
             tts_settings = TTSSettings()
 
+        # 加载Tushare配置
+        tushare_config = raw_config.get("tushare", {})
+        tushare_settings = TushareSettings(**tushare_config) if tushare_config else TushareSettings()
+
         config_dict = {
             "llm": {
                 "default": default_settings,
@@ -288,6 +299,7 @@ class Config:
             "search_config": search_settings,
             "mcp_config": mcp_settings,
             "tts_config": tts_settings,
+            "tushare_config": tushare_settings,
         }
 
         self._config = AppConfig(**config_dict)
@@ -313,6 +325,11 @@ class Config:
     def tts_config(self) -> TTSSettings:
         """获取TTS配置"""
         return self._config.tts_config
+
+    @property
+    def tushare_config(self) -> TushareSettings:
+        """获取Tushare配置"""
+        return self._config.tushare_config
 
     @property
     def workspace_root(self) -> Path:

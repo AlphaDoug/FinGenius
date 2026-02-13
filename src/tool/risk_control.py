@@ -2,7 +2,7 @@ import asyncio
 
 from src.logger import logger
 from src.tool.base import BaseTool, ToolResult
-from src.tool.financial_deep_search.risk_control_data import get_risk_control_data
+from src.tool.market_data_provider import market_data_provider
 
 
 class RiskControlTool(BaseTool):
@@ -70,7 +70,7 @@ class RiskControlTool(BaseTool):
         try:
             # Execute synchronous operation in thread pool to avoid blocking event loop
             result = await asyncio.to_thread(
-                get_risk_control_data,
+                market_data_provider.get_risk_control_data,
                 stock_code=stock_code,
                 max_count=max_count,
                 period=period,

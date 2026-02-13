@@ -1,17 +1,14 @@
 import asyncio
 import json
 from datetime import datetime
-from typing import Optional
+from typing import Any, Callable, Dict, Optional
 
-import efinance as ef
 import pandas as pd
 from pydantic import Field
 
 from src.logger import logger
 from src.tool.base import BaseTool, ToolResult, get_recent_trading_day
-from src.tool.financial_deep_search.get_section_data import get_all_section
-from src.tool.financial_deep_search.index_capital import get_index_capital_flow
-from src.tool.financial_deep_search.stock_capital import get_stock_capital_flow
+from src.tool.market_data_provider import market_data_provider
 
 
 _HOT_MONEY_DESCRIPTION = """
@@ -33,7 +30,7 @@ class HotMoneyTool(BaseTool):
 
     name: str = "hot_money_tool"
     description: str = _HOT_MONEY_DESCRIPTION
-    parameters: dict = {
+    parameters: Optional[Dict[str, Any]] = {
         "type": "object",
         "properties": {
             "stock_code": {
@@ -70,15 +67,15 @@ class HotMoneyTool(BaseTool):
 
     lock: asyncio.Lock = Field(default_factory=asyncio.Lock)
 
-    async def execute(
+    async def execute(  # type: ignore[override]
         self,
-        stock_code: str,
+        stock_code: str = "",
         index_code: Optional[str] = None,
         date: str = "",
         sector_types: str = "all",
         max_retry: int = 3,
         sleep_seconds: int = 1,
-        **kwargs,
+        **kwargs: Any,
     ) -> ToolResult:
         """
         Execute the hot money data retrieval operation.
@@ -100,7 +97,7 @@ class HotMoneyTool(BaseTool):
                 date = date or get_recent_trading_day()
                 actual_index_code = index_code or stock_code
 
-                result = {
+                result: Dict[str, Any] = {
                     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "stock_code": stock_code,
                     "date": date,
@@ -110,19 +107,19 @@ class HotMoneyTool(BaseTool):
 
                 # Get all data with retry mechanism
                 data_sources = {
-                    "stock_latest_info": lambda: ef.stock.get_realtime_quotes(
+                    "stock_latest_info": lambda: market_data_provider.get_realtime_quotes(
                         stock_code
                     ),
-                    "daily_top_list": lambda: ef.stock.get_daily_billboard(
+                    "daily_top_list": lambda: market_data_provider.get_daily_billboard(
                         start_date=date, end_date=date
                     ),
-                    "hot_section_data": lambda: get_all_section(
+                    "hot_section_data": lambda: market_data_provider.get_section_data(
                         sector_types=sector_types
                     ),
-                    "stock_net_flow": lambda: get_stock_capital_flow(
+                    "stock_net_flow": lambda: market_data_provider.get_stock_capital_flow(
                         stock_code=stock_code
                     ),
-                    "index_net_flow": lambda: get_index_capital_flow(
+                    "index_net_flow": lambda: market_data_provider.get_index_capital_flow(
                         index_code=actual_index_code
                     ),
                 }
@@ -141,7 +138,12 @@ class HotMoneyTool(BaseTool):
                 return ToolResult(error=error_msg)
 
     @staticmethod
-    async def _get_data_with_retry(func, data_name, max_retry=3, sleep_seconds=1):
+    async def _get_data_with_retry(
+        func: Callable[[], Any],
+        data_name: str,
+        max_retry: int = 3,
+        sleep_seconds: int = 1,
+    ) -> Any:
         """
         Get data with retry mechanism.
 
@@ -167,6 +169,8 @@ class HotMoneyTool(BaseTool):
                     return data.to_dict()
                 elif hasattr(data, "to_json"):
                     return json.loads(data.to_json())
+                elif isinstance(data, dict):
+                    return data
 
                 logger.info(f"[{data_name}] Data retrieved successfully")
                 return data

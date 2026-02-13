@@ -2,11 +2,11 @@ import asyncio
 import datetime
 from typing import Any, Dict
 
-import efinance as ef
 import pandas as pd
 from pydantic import Field
 
 from src.tool.base import BaseTool, ToolResult, get_recent_trading_day
+from src.tool.market_data_provider import market_data_provider
 
 
 class StockInfoResponse(ToolResult):
@@ -55,10 +55,7 @@ class StockInfoRequest(BaseTool):
                 trading_day = get_recent_trading_day()
 
                 # Fetch stock information
-                data = ef.stock.get_base_info(stock_code)
-
-                # Convert data to dict format based on its type
-                basic_info = self._format_data(data)
+                basic_info = market_data_provider.get_base_info(stock_code)
 
                 # Create and return the response
                 return StockInfoResponse(
@@ -77,25 +74,7 @@ class StockInfoRequest(BaseTool):
 
     @staticmethod
     def _format_data(data: Any) -> Dict[str, Any]:
-        """
-        Format data to a JSON-serializable dictionary.
-
-        Args:
-            data: The data to format, typically from efinance
-
-        Returns:
-            A dictionary representation of the data
-        """
-        if isinstance(data, pd.DataFrame):
-            return data.to_dict(orient="records")[0] if len(data) > 0 else {}
-        elif isinstance(data, pd.Series):
-            return data.to_dict()
-        elif isinstance(data, dict):
-            return data
-        elif isinstance(data, (int, float, str, bool)):
-            return {"value": data}
-        else:
-            return {"value": str(data)}
+        return market_data_provider.to_dict(data)
 
 
 if __name__ == "__main__":

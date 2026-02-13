@@ -4,11 +4,7 @@ import pandas as pd  # type: ignore
 
 from src.logger import logger
 from src.tool.base import BaseTool, ToolResult
-
-try:
-    import akshare as ak  # type: ignore
-except ImportError:
-    ak = None  # type: ignore
+from src.tool.market_data_provider import market_data_provider
 
 
 class BigDealAnalysisTool(BaseTool):
@@ -61,7 +57,7 @@ class BigDealAnalysisTool(BaseTool):
         **kwargs,
     ) -> ToolResult:
         """Fetch big deal fund flow data and return structured result."""
-        if ak is None:
+        if not market_data_provider.akshare_available():
             return ToolResult(error="akshare library not installed")
 
         try:
@@ -87,7 +83,7 @@ class BigDealAnalysisTool(BaseTool):
                     return None
 
             # Market wide big deal flow (逐笔大单)
-            df_bd = _safe_fetch(ak.stock_fund_flow_big_deal)
+            df_bd = _safe_fetch(market_data_provider.get_stock_fund_flow_big_deal)
             if df_bd is not None and not df_bd.empty:
                 # 清洗数字列
                 def _to_float(series):
@@ -128,7 +124,7 @@ class BigDealAnalysisTool(BaseTool):
                 result["market_big_deal_samples"] = []
 
             # Individual fund flow rank 使用 stock_fund_flow_individual(symbol)
-            individual_rank = _safe_fetch(ak.stock_fund_flow_individual, symbol=rank_symbol)
+            individual_rank = _safe_fetch(market_data_provider.get_stock_fund_flow_individual, symbol=rank_symbol)
 
             # 默认返回排行榜前 top_n 条
             result["individual_rank_top"] = (
@@ -147,13 +143,13 @@ class BigDealAnalysisTool(BaseTool):
 
             if stock_code:
                 # Stock specific fund flow trend 使用 stock_individual_fund_flow
-                individual_flow = _safe_fetch(ak.stock_individual_fund_flow, stock=stock_code)
+                individual_flow = _safe_fetch(market_data_provider.get_stock_individual_fund_flow, stock_code=stock_code)
                 result["stock_fund_flow"] = (
                     individual_flow.to_dict(orient="records") if individual_flow is not None else []
                 )
 
                 # Historical price data for correlation
-                hist_price = _safe_fetch(ak.stock_zh_a_hist, symbol=stock_code, period="daily")
+                hist_price = _safe_fetch(market_data_provider.get_stock_zh_a_hist, stock_code=stock_code, period="daily")
                 if hist_price is not None:
                     result["stock_price_hist"] = hist_price.tail(120).to_dict(orient="records")
                 else:
@@ -162,7 +158,7 @@ class BigDealAnalysisTool(BaseTool):
                 # 1. 先整体抓取逐笔大单
                 # 复用已获取的 df_bd，若为空再尝试一次
                 if df_bd is None:
-                    df_bd = _safe_fetch(ak.stock_fund_flow_big_deal)
+                    df_bd = _safe_fetch(market_data_provider.get_stock_fund_flow_big_deal)
 
                 stk_df = pd.DataFrame()
                 if df_bd is not None and not df_bd.empty:

@@ -4,11 +4,9 @@ import sys
 import time
 from typing import Any, Dict
 
-import efinance as ef
-
 from src.logger import logger
 from src.tool.base import BaseTool, ToolResult
-from src.tool.financial_deep_search.stock_capital import get_stock_capital_flow
+from src.tool.market_data_provider import market_data_provider
 
 
 class TechnicalAnalysisTool(BaseTool):
@@ -184,28 +182,7 @@ class TechnicalAnalysisTool(BaseTool):
     def _get_realtime_quotes(stock_code: str) -> Dict[str, Any]:
         """Get real-time quotes data"""
         try:
-            # Format stock code according to market
-            if stock_code.startswith("6"):
-                formatted_code = f"sh{stock_code}"
-            elif stock_code.startswith(("0", "3")):
-                formatted_code = f"sz{stock_code}"
-            else:
-                formatted_code = stock_code
-
-            quotes_df = ef.stock.get_realtime_quotes(formatted_code)
-
-            # Process returned DataFrame
-            if quotes_df is not None and not quotes_df.empty:
-                if hasattr(quotes_df, "to_dict"):
-                    if hasattr(quotes_df, "shape") and len(quotes_df.shape) > 1:
-                        # DataFrame
-                        records = quotes_df.to_dict(orient="records")
-                        if records:
-                            return records[0]  # Return first record
-                    else:
-                        # Series
-                        return quotes_df.to_dict()
-            return {}
+            return market_data_provider.get_realtime_quotes(stock_code)
         except Exception as e:
             logger.error(f"Failed to get real-time quotes: {e}")
             return {"error": str(e)}
@@ -214,17 +191,10 @@ class TechnicalAnalysisTool(BaseTool):
     def _get_daily_kline(stock_code: str, count: int = 30) -> list:
         """Get daily K-line data"""
         try:
-            kline_df = ef.stock.get_quote_history(stock_code, klt=101)
-
-            if kline_df is not None and not kline_df.empty:
-                # Keep only the most recent count records
-                if len(kline_df) > count:
-                    kline_df = kline_df.tail(count)
-
-                # Convert to list of dictionaries
-                if hasattr(kline_df, "to_dict"):
-                    return kline_df.to_dict(orient="records")
-            return []
+            kline_data = market_data_provider.get_quote_history(stock_code, klt=101)
+            if len(kline_data) > count:
+                kline_data = kline_data[-count:]
+            return kline_data
         except Exception as e:
             logger.error(f"Failed to get daily K-line data: {e}")
             return []
@@ -233,17 +203,10 @@ class TechnicalAnalysisTool(BaseTool):
     def _get_minute_kline(stock_code: str, count: int = 30) -> list:
         """Get minute K-line data"""
         try:
-            kline_df = ef.stock.get_quote_history(stock_code, klt=1)
-
-            if kline_df is not None and not kline_df.empty:
-                # Keep only the most recent count records
-                if len(kline_df) > count:
-                    kline_df = kline_df.tail(count)
-
-                # Convert to list of dictionaries
-                if hasattr(kline_df, "to_dict"):
-                    return kline_df.to_dict(orient="records")
-            return []
+            kline_data = market_data_provider.get_quote_history(stock_code, klt=1)
+            if len(kline_data) > count:
+                kline_data = kline_data[-count:]
+            return kline_data
         except Exception as e:
             logger.error(f"Failed to get minute K-line data: {e}")
             return []
@@ -252,7 +215,7 @@ class TechnicalAnalysisTool(BaseTool):
     def _get_capital_flow(stock_code: str) -> Dict[str, Any]:
         """Get stock capital flow data"""
         try:
-            return get_stock_capital_flow(stock_code=stock_code)
+            return market_data_provider.get_stock_capital_flow(stock_code=stock_code)
         except Exception as e:
             logger.error(f"Failed to get capital flow data: {e}")
             return {}

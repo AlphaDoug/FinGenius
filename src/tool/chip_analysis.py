@@ -4,12 +4,12 @@ import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-import akshare as ak
 import numpy as np
 import pandas as pd
 
 from src.logger import logger
 from src.tool.base import BaseTool, ToolResult, get_recent_trading_day
+from src.tool.market_data_provider import market_data_provider
 
 
 class ChipAnalysisTool(BaseTool):
@@ -90,7 +90,7 @@ class ChipAnalysisTool(BaseTool):
             
             # 方法1: 尝试使用原始API - 只获取最近5个交易日
             try:
-                df = ak.stock_cyq_em(symbol=clean_code, adjust=adjust)
+                df = market_data_provider.get_stock_cyq_em(stock_code=clean_code, adjust=adjust)
                 if df is not None and not df.empty:
                     # 只保留最近5个交易日的数据
                     recent_df = df.tail(5)
@@ -116,8 +116,13 @@ class ChipAnalysisTool(BaseTool):
                 end_date = recent_trading_day.strftime("%Y%m%d")
                 start_date = (recent_trading_day - timedelta(days=15)).strftime("%Y%m%d")  # 15天前保证有足够交易日
                 
-                hist_df = ak.stock_zh_a_hist(symbol=clean_code, period="daily", 
-                                           start_date=start_date, end_date=end_date, adjust="qfq")
+                hist_df = market_data_provider.get_stock_zh_a_hist(
+                    stock_code=clean_code,
+                    period="daily",
+                    start_date=start_date,
+                    end_date=end_date,
+                    adjust="qfq",
+                )
                 
                 if hist_df is not None and not hist_df.empty:
                     # 只使用最近5个交易日的数据
@@ -180,7 +185,7 @@ class ChipAnalysisTool(BaseTool):
             
             # 方法1: 尝试使用实时行情API
             try:
-                stock_info = ak.stock_zh_a_spot_em()
+                stock_info = market_data_provider.get_stock_zh_a_spot_em()
                 if stock_info is not None and not stock_info.empty:
                     stock_detail = stock_info[stock_info['代码'] == clean_code]
                     
@@ -205,8 +210,13 @@ class ChipAnalysisTool(BaseTool):
                 end_date = recent_trading_day.strftime("%Y%m%d")
                 start_date = (recent_trading_day - timedelta(days=7)).strftime("%Y%m%d")  # 7天前保证有数据
                 
-                hist_df = ak.stock_zh_a_hist(symbol=clean_code, period="daily", 
-                                           start_date=start_date, end_date=end_date, adjust="")
+                hist_df = market_data_provider.get_stock_zh_a_hist(
+                    stock_code=clean_code,
+                    period="daily",
+                    start_date=start_date,
+                    end_date=end_date,
+                    adjust="",
+                )
                 if hist_df is not None and not hist_df.empty:
                     latest = hist_df.iloc[-1]
                     return {
@@ -250,7 +260,7 @@ class ChipAnalysisTool(BaseTool):
             
             # 1. 尝试东方财富实时数据
             try:
-                realtime_data = ak.stock_zh_a_spot_em()
+                realtime_data = market_data_provider.get_stock_zh_a_spot_em()
                 if realtime_data is not None and not realtime_data.empty:
                     stock_data = realtime_data[realtime_data['代码'] == clean_code]
                     if not stock_data.empty:
@@ -270,8 +280,13 @@ class ChipAnalysisTool(BaseTool):
                 current_date = recent_trading_day.strftime("%Y%m%d")
                 start_date = (recent_trading_day - timedelta(days=7)).strftime("%Y%m%d")  # 7天前
                 
-                hist_data = ak.stock_zh_a_hist(symbol=clean_code, period="daily", 
-                                             start_date=start_date, end_date=current_date, adjust="")
+                hist_data = market_data_provider.get_stock_zh_a_hist(
+                    stock_code=clean_code,
+                    period="daily",
+                    start_date=start_date,
+                    end_date=current_date,
+                    adjust="",
+                )
                 if hist_data is not None and not hist_data.empty:
                     latest = hist_data.iloc[-1]
                     data_sources.append({
@@ -287,7 +302,8 @@ class ChipAnalysisTool(BaseTool):
             
             # 3. 尝试获取资金流向数据
             try:
-                money_flow = ak.stock_individual_fund_flow(stock=clean_code, market="sh" if clean_code.startswith('6') else "sz")
+                market = "sh" if clean_code.startswith("6") else "sz"
+                money_flow = market_data_provider.get_stock_individual_fund_flow(stock_code=clean_code, market=market)
                 if money_flow is not None and not money_flow.empty:
                     latest_flow = money_flow.iloc[-1]
                     data_sources.append({

@@ -7,6 +7,7 @@ from src.tool.create_chat_completion import CreateChatCompletion
 from src.tool.terminate import Terminate
 from src.tool.tool_collection import ToolCollection
 from src.tool.big_deal_analysis import BigDealAnalysisTool
+from src.tool.market_data_provider import MarketDataProvider, market_data_provider
 
 
 __all__ = [
@@ -17,4 +18,6 @@ __all__ = [
     "ToolCollection",
     "CreateChatCompletion",
     "BigDealAnalysisTool",
+    "MarketDataProvider",
+    "market_data_provider",
 ]
