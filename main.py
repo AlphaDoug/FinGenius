@@ -12,12 +12,60 @@ from src.environment.research import ResearchEnvironment
 from src.logger import logger
 from src.schema import AgentState
 from src.tool.tts_tool import TTSTool
-from src.agent.report import ReportAgent
+
 from src.utils.report_manager import report_manager
 from src.console import visualizer, clear_screen
 from rich.console import Console
+import io
 
-console = Console()
+if sys.platform == "win32":
+    _utf8_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    console = Console(file=_utf8_stdout, force_terminal=True)
+else:
+    console = Console()
+
+
+def _extract_analysis_conclusion(agent_result: str) -> str:
+    """从 agent 返回结果中提取 LLM 的分析结论文本。
+
+    修改后的 ToolCallAgent.step() 会将 LLM 分析文本和工具输出合并返回，
+    格式为: "[LLM分析文本]\n\nObserved output of cmd `terminate` executed:\n..."
+    本函数从最后一个 step 中提取 LLM 的分析结论，排除工具执行日志。
+    """
+    if not agent_result:
+        return ""
+
+    # 按 step 分割
+    import re
+    steps = re.split(r'(?=Step \d+:)', agent_result.strip())
+    steps = [s.strip() for s in steps if s.strip()]
+
+    if not steps:
+        return ""
+
+    # 取最后一个 step 的内容
+    last_step = steps[-1]
+
+    # 移除 "Step N: " 前缀
+    last_step = re.sub(r'^Step \d+:\s*', '', last_step)
+
+    # 查找 "Observed output of cmd `terminate`" 的位置
+    terminate_marker = "Observed output of cmd `terminate`"
+    terminate_idx = last_step.find(terminate_marker)
+
+    if terminate_idx > 0:
+        # terminate 标记前面的内容就是 LLM 分析结论
+        conclusion = last_step[:terminate_idx].strip()
+        if conclusion:
+            return conclusion
+
+    # 如果最后一个 step 不包含 terminate，尝试查找任何非工具输出的文本
+    # 检查是否以 "Observed output of cmd" 开头（纯工具输出，没有分析结论）
+    if last_step.startswith("Observed output of cmd"):
+        return ""
+
+    # 如果有内容且不是纯工具输出，可能整段都是分析结论
+    return last_step
 
 
 class EnhancedFinGeniusAnalyzer:
@@ -190,127 +238,86 @@ class EnhancedFinGeniusAnalyzer:
             battle_env._broadcast_message = enhanced_broadcast
 
     async def _generate_reports(self, stock_code: str, research_result: Dict[str, Any], battle_result: Dict[str, Any]):
-        """Generate reports with progress visualization"""
+        """Generate analysis reports with AI expert summaries"""
         try:
-            visualizer.show_progress_update("生成分析报告", "创建HTML报告和JSON数据...")
+            visualizer.show_progress_update("生成分析报告", "创建专家总结和JSON数据...")
             
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # 导入新的报告生成器
+            from src.utils.analysis_report_generator import AnalysisReportGenerator
+            from src.llm import LLM
             
-            # Generate HTML report
-            logger.info("生成HTML报告...")
-            report_agent = await ReportAgent.create(max_steps=3)
+            # 获取LLM客户端
+            llm_client = LLM()
             
-            # Prepare report data
-            summary = "\n\n".join([
-                f"金融专家对{stock_code}的研究结果如下：",
-                f"情感分析：{research_result.get('sentiment', '暂无数据')}",
-                f"风险分析：{research_result.get('risk', '暂无数据')}",
-                f"游资分析：{research_result.get('hot_money', '暂无数据')}",
-                f"技术面分析：{research_result.get('technical', '暂无数据')}",
-                f"筹码分析：{research_result.get('chip_analysis', '暂无数据')}",
-                f"大单异动分析：{research_result.get('big_deal', '暂无数据')}",
-                f"博弈结果：{battle_result.get('final_decision', '无结果')}",
-                f"投票统计：{battle_result.get('vote_count', {})}"
-            ])
+            # 创建报告生成器
+            report_generator = AnalysisReportGenerator(llm_client)
             
-            # Calculate vote percentages
-            bull_cnt = battle_result.get('vote_count', {}).get('bullish', 0)
-            bear_cnt = battle_result.get('vote_count', {}).get('bearish', 0)
-            total_votes = bull_cnt + bear_cnt
-            bull_pct = round(bull_cnt / total_votes * 100, 1) if total_votes else 0
-            bear_pct = round(bear_cnt / total_votes * 100, 1) if total_votes else 0
-
-            # Generate HTML report
-            html_filename = f"report_{stock_code}_{timestamp}.html"
-            html_path = f"report/{html_filename}"
-
-            html_request = f"""
-            基于股票{stock_code}的综合分析，生成一份美观的HTML报告。
-            
-            请在报告中包含以下模块，并按顺序呈现：
-            1. 标题及股票基本信息
-            2. 博弈结果与投票统计（先展示投票结论与统计）
-               • 最终结论：{battle_result.get('final_decision', '未知')}
-               • 看涨票数：{bull_cnt}（{bull_pct}%）
-               • 看跌票数：{bear_cnt}（{bear_pct}%）
-            3. 各项研究分析结果（情感、风险、游资、技术面、筹码、大单异动）
-            4. 辩论对话过程：按照时间顺序，以聊天气泡或时间线形式展示 `battle_results.debate_history` 中的发言，**必须完整呈现全部发言，不得删减省略**；清晰标注轮次、专家名称、发言内容与时间戳。
-            5. 任何你认为有助于读者理解的图表或可视化。
-            
-            重要：请确保页面最底部保留 AI 免责声明。
-            """
-            
-            try:
-                if report_agent and report_agent.available_tools:
-                    await report_agent.available_tools.execute(
-                        name="create_html",
-                        tool_input={
-                            "request": html_request,
-                            "output_path": html_path,
-                            "data": {
-                                "stock_code": stock_code,
-                                "research_results": research_result,
-                                "battle_results": battle_result,
-                                "timestamp": timestamp
-                            }
-                        }
-                    )
-                    visualizer.show_progress_update("HTML报告生成完成", f"文件: {html_path}")
-                else:
-                    logger.error("无法创建报告Agent或工具集")
-            except Exception as e:
-                logger.error(f"生成HTML报告失败: {str(e)}")
-            
-            # Save debate JSON
-            visualizer.show_progress_update("保存辩论记录", "JSON格式...")
-            debate_data = {
-                "stock_code": stock_code,
-                "timestamp": timestamp,
-                "debate_rounds": battle_result.get("debate_rounds", 0),
-                "agent_order": battle_result.get("agent_order", []),
-                "debate_history": battle_result.get("debate_history", []),
-                "battle_highlights": battle_result.get("battle_highlights", [])
-            }
-            
-            report_manager.save_debate_report(
+            # 生成完整的分析报告
+            visualizer.show_progress_update("AI专家总结", "正在总结各专家观点...")
+            analysis_report = await report_generator.generate_complete_report(
                 stock_code=stock_code,
-                debate_data=debate_data,
-                metadata={
-                    "type": "debate_dialog",
-                    "debate_rounds": battle_result.get("debate_rounds", 0),
-                    "participants": len(battle_result.get("agent_order", []))
-                }
+                research_results=research_result,
+                battle_results=battle_result,
+                start_time=self.start_time
             )
             
-            # Save vote results JSON
-            visualizer.show_progress_update("保存投票结果", "JSON格式...")
-            vote_data = {
-                "stock_code": stock_code,
-                "timestamp": timestamp,
-                "final_decision": battle_result.get("final_decision", "No decision"),
-                "vote_count": battle_result.get("vote_count", {}),
-                "agent_order": battle_result.get("agent_order", []),
-                "vote_details": {
-                    "bullish": battle_result.get("vote_count", {}).get("bullish", 0),
-                    "bearish": battle_result.get("vote_count", {}).get("bearish", 0),
-                    "total_agents": len(battle_result.get("agent_order", []))
-                }
-            }
+            # 获取原始股票数据（用于分离存储）
+            visualizer.show_progress_update("获取股票数据", "收集原始股票信息...")
+            raw_stock_data = await self._get_raw_stock_data(stock_code)
             
-            report_manager.save_vote_report(
+            # 保存分析报告
+            visualizer.show_progress_update("保存分析报告", "写入文件系统...")
+            file_paths = report_manager.save_analysis_report(
                 stock_code=stock_code,
-                vote_data=vote_data,
-                metadata={
-                    "type": "vote_results",
-                    "final_decision": battle_result.get("final_decision", "No decision"),
-                    "total_votes": sum(battle_result.get("vote_count", {}).values())
-                }
+                analysis_report=analysis_report,
+                raw_stock_data=raw_stock_data
             )
             
-            visualizer.show_progress_update("报告生成完成", "所有文件已保存")
+            # 显示保存结果
+            folder_path = file_paths["folder_path"]
+            self._report_dir = folder_path
+            visualizer.show_progress_update("报告生成完成", f"文件夹: {folder_path}")
+            
+            logger.info(f"分析报告生成完成: {folder_path}")
+            logger.info(f"- 主报告: {file_paths['main_report']}")
+            if file_paths['raw_data']:
+                logger.info(f"- 原始数据: {file_paths['raw_data']}")
+            logger.info(f"- 元数据: {file_paths['metadata']}")
             
         except Exception as e:
             visualizer.show_error(f"生成报告失败: {str(e)}")
+            logger.error(f"生成报告失败: {str(e)}")
+    
+    async def _get_raw_stock_data(self, stock_code: str) -> Dict[str, Any]:
+        """获取原始股票数据"""
+        try:
+            from src.tool.stock_info_request import StockInfoRequest
+            
+            stock_info_tool = StockInfoRequest()
+            raw_data = await stock_info_tool.execute(stock_code=stock_code)
+            
+            # 将 Pydantic model 转为 dict
+            if hasattr(raw_data, 'model_dump'):
+                raw_data = raw_data.model_dump()
+            elif hasattr(raw_data, 'dict'):
+                raw_data = raw_data.dict()
+            
+            # 添加获取时间戳
+            raw_data_with_timestamp = {
+                "stock_code": stock_code,
+                "fetch_timestamp": datetime.now().isoformat(),
+                "data": raw_data
+            }
+            
+            return raw_data_with_timestamp
+            
+        except Exception as e:
+            logger.error(f"获取原始股票数据失败 {stock_code}: {str(e)}")
+            return {
+                "stock_code": stock_code,
+                "fetch_timestamp": datetime.now().isoformat(),
+                "data": {"error": f"获取失败: {str(e)}"}
+            }
 
     def _prepare_final_results(self, stock_code: str, research_results: Dict[str, Any], battle_results: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare final analysis results"""
@@ -320,6 +327,10 @@ class EnhancedFinGeniusAnalyzer:
             "total_tool_calls": self.total_tool_calls,
             "total_llm_calls": self.total_llm_calls
         }
+        
+        # 添加报告目录路径
+        if hasattr(self, "_report_dir") and self._report_dir:
+            final_results["report_dir"] = self._report_dir
         
         # Merge research results
         if research_results:

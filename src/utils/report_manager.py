@@ -1,9 +1,9 @@
 """
-简化的报告管理器
-专门处理FinGenius的三种核心报告类型：
-1. HTML报告 - 使用create_html生成的美观报告
-2. 辩论对话JSON - 所有辩论发言记录
-3. 投票结果JSON - 按票数统计的投票结果
+增强的报告管理器
+专门处理FinGenius的分析报告类型：
+1. 主分析报告JSON - 包含专家总结、股票详情、投票结果
+2. 原始数据JSON - API获取的股票基础信息数据
+3. 按时间戳创建文件夹统一管理
 """
 
 import json
@@ -13,21 +13,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.logger import logger
+from src.schema.expert_summary import AnalysisReport
 
 
-class SimpleReportManager:
-    """简化的报告管理器"""
+class EnhancedReportManager:
+    """增强的报告管理器"""
     
-    def __init__(self, base_dir: str = "report"):
+    def __init__(self, base_dir: str = "analysis_reports"):
         self.base_dir = Path(base_dir)
         self.ensure_directories()
-        
-        # 报告类型配置
-        self.report_types = {
-            "html": {"extension": "html", "subdir": "html"},
-            "debate": {"extension": "json", "subdir": "debate"},
-            "vote": {"extension": "json", "subdir": "vote"}
-        }
         
         # 保留期限（天）
         self.retention_days = 30
@@ -35,276 +29,187 @@ class SimpleReportManager:
     def ensure_directories(self):
         """确保所有必要的目录存在"""
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 创建三个子目录
-        for report_type in ["html", "debate", "vote"]:
-            (self.base_dir / report_type).mkdir(parents=True, exist_ok=True)
     
-    def generate_filename(self, report_type: str, stock_code: str, 
-                         timestamp: str | None = None) -> str:
-        """生成报告文件名"""
+    def create_timestamped_folder(self, stock_code: str, timestamp: str = None) -> Path:
+        """创建基于时间戳的文件夹"""
         if timestamp is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        extension = self.report_types[report_type]["extension"]
-        return f"{report_type}_{stock_code}_{timestamp}.{extension}"
+        folder_name = f"{stock_code}_{timestamp}"
+        folder_path = self.base_dir / folder_name
+        folder_path.mkdir(parents=True, exist_ok=True)
+        
+        return folder_path
     
-    def get_report_path(self, report_type: str, filename: str) -> Path:
-        """获取报告文件的完整路径"""
-        subdir = self.report_types[report_type]["subdir"]
-        return self.base_dir / subdir / filename
-    
-    def save_html_report(self, stock_code: str, html_content: str, 
-                        metadata: Optional[Dict] = None) -> bool:
-        """保存HTML报告"""
-        return self._save_report("html", stock_code, html_content, metadata)
-    
-    def save_debate_report(self, stock_code: str, debate_data: Dict, 
-                          metadata: Optional[Dict] = None) -> bool:
-        """保存辩论对话JSON"""
-        content = json.dumps(debate_data, ensure_ascii=False, indent=2)
-        return self._save_report("debate", stock_code, content, metadata)
-    
-    def save_vote_report(self, stock_code: str, vote_data: Dict, 
-                        metadata: Optional[Dict] = None) -> bool:
-        """保存投票结果JSON"""
-        content = json.dumps(vote_data, ensure_ascii=False, indent=2)
-        return self._save_report("vote", stock_code, content, metadata)
-    
-    def _save_report(self, report_type: str, stock_code: str, content: str, 
-                    metadata: Optional[Dict] = None) -> bool:
-        """通用的报告保存方法"""
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = self.generate_filename(report_type, stock_code, timestamp)
-            file_path = self.get_report_path(report_type, filename)
+    def save_analysis_report(
+        self, 
+        stock_code: str, 
+        analysis_report: AnalysisReport,
+        raw_stock_data: Dict[str, Any] = None
+    ) -> Dict[str, str]:
+        """
+        保存完整的分析报告
+        
+        Args:
+            stock_code: 股票代码
+            analysis_report: 分析报告对象
+            raw_stock_data: 原始股票数据
             
-            # 保存报告内容
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+        Returns:
+            Dict[str, str]: 保存的文件路径信息
+        """
+        try:
+            # 创建时间戳文件夹
+            folder_path = self.create_timestamped_folder(stock_code, analysis_report.timestamp)
+            
+            # 保存主分析报告
+            main_report_path = folder_path / "analysis_report.json"
+            with open(main_report_path, 'w', encoding='utf-8') as f:
+                json.dump(analysis_report.model_dump(), f, ensure_ascii=False, indent=2)
+            
+            # 保存原始股票数据（如果提供）
+            raw_data_path = None
+            if raw_stock_data:
+                raw_data_path = folder_path / "raw_stock_data.json"
+                with open(raw_data_path, 'w', encoding='utf-8') as f:
+                    json.dump(raw_stock_data, f, ensure_ascii=False, indent=2)
             
             # 保存元数据
-            if metadata:
-                meta_filename = filename.replace(f".{self.report_types[report_type]['extension']}", ".meta.json")
-                meta_path = self.get_report_path(report_type, meta_filename)
-                
-                with open(meta_path, 'w', encoding='utf-8') as f:
-                    json.dump({
-                        **metadata,
-                        "report_type": report_type,
-                        "stock_code": stock_code,
-                        "created_at": datetime.now().isoformat(),
-                        "file_size": len(content.encode('utf-8')),
-                        "filename": filename
-                    }, f, ensure_ascii=False, indent=2)
+            metadata = {
+                "stock_code": stock_code,
+                "timestamp": analysis_report.timestamp,
+                "analysis_duration": analysis_report.analysis_duration,
+                "expert_count": len(analysis_report.expert_summaries),
+                "total_votes": analysis_report.voting_results.total_votes,
+                "final_decision": analysis_report.voting_results.final_decision,
+                "created_at": datetime.now().isoformat(),
+                "folder_path": str(folder_path)
+            }
             
-            logger.info(f"保存{report_type}报告成功: {file_path}")
-            return True
+            metadata_path = folder_path / "metadata.json"
+            with open(metadata_path, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, ensure_ascii=False, indent=2)
             
-        except Exception as e:
-            logger.error(f"保存{report_type}报告失败: {str(e)}")
-            return False
-    
-    def load_report(self, report_type: str, filename: str) -> Optional[Dict]:
-        """加载报告"""
-        try:
-            file_path = self.get_report_path(report_type, filename)
-            if not file_path.exists():
-                return None
-            
-            # 读取报告内容
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            # 读取元数据
-            meta_filename = filename.replace(f".{self.report_types[report_type]['extension']}", ".meta.json")
-            meta_path = self.get_report_path(report_type, meta_filename)
-            
-            metadata = {}
-            if meta_path.exists():
-                with open(meta_path, 'r', encoding='utf-8') as f:
-                    metadata = json.load(f)
+            logger.info(f"分析报告保存成功: {folder_path}")
             
             return {
-                "filename": filename,
-                "content": content,
-                "metadata": metadata,
-                "path": str(file_path),
-                "type": report_type
+                "folder_path": str(folder_path),
+                "main_report": str(main_report_path),
+                "raw_data": str(raw_data_path) if raw_data_path else None,
+                "metadata": str(metadata_path)
             }
             
         except Exception as e:
-            logger.error(f"加载{report_type}报告失败: {str(e)}")
+            logger.error(f"保存分析报告失败 {stock_code}: {str(e)}")
+            raise
+    
+    def load_analysis_report(self, folder_path: str) -> Optional[Dict[str, Any]]:
+        """加载分析报告"""
+        try:
+            folder = Path(folder_path)
+            if not folder.exists():
+                return None
+            
+            # 读取主报告
+            main_report_path = folder / "analysis_report.json"
+            if not main_report_path.exists():
+                return None
+            
+            with open(main_report_path, 'r', encoding='utf-8') as f:
+                main_report = json.load(f)
+            
+            # 读取原始数据（可选）
+            raw_data = None
+            raw_data_path = folder / "raw_stock_data.json"
+            if raw_data_path.exists():
+                with open(raw_data_path, 'r', encoding='utf-8') as f:
+                    raw_data = json.load(f)
+            
+            # 读取元数据
+            metadata = {}
+            metadata_path = folder / "metadata.json"
+            if metadata_path.exists():
+                with open(metadata_path, 'r', encoding='utf-8') as f:
+                    metadata = json.load(f)
+            
+            return {
+                "main_report": main_report,
+                "raw_data": raw_data,
+                "metadata": metadata,
+                "folder_path": str(folder)
+            }
+            
+        except Exception as e:
+            logger.error(f"加载分析报告失败 {folder_path}: {str(e)}")
             return None
     
-    def list_reports(self, report_type: str | None = None, limit: int = 20) -> List[Dict]:
-        """列出报告"""
+    def list_analysis_reports(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """列出分析报告"""
         reports = []
         
-        # 如果指定了类型，只列出该类型的报告
-        types_to_check = [report_type] if report_type else self.report_types.keys()
-        
-        for rtype in types_to_check:
-            try:
-                subdir = self.report_types[rtype]["subdir"]
-                type_path = self.base_dir / subdir
-                
-                if not type_path.exists():
-                    continue
-                
-                extension = self.report_types[rtype]["extension"]
-                for file_path in type_path.glob(f"*.{extension}"):
-                    # 跳过元数据文件
-                    if file_path.name.endswith('.meta.json'):
-                        continue
-                    
-                    meta_filename = file_path.name.replace(f".{extension}", ".meta.json")
-                    meta_path = type_path / meta_filename
-                    
-                    metadata = {}
-                    if meta_path.exists():
-                        try:
-                            with open(meta_path, 'r', encoding='utf-8') as f:
-                                metadata = json.load(f)
-                        except:
-                            pass
+        try:
+            # 获取所有文件夹，按时间排序
+            folders = [f for f in self.base_dir.iterdir() if f.is_dir()]
+            folders.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+            
+            for folder in folders[:limit]:
+                metadata_path = folder / "metadata.json"
+                if metadata_path.exists():
+                    with open(metadata_path, 'r', encoding='utf-8') as f:
+                        metadata = json.load(f)
                     
                     reports.append({
-                        "filename": file_path.name,
-                        "type": rtype,
-                        "stock_code": metadata.get("stock_code", ""),
-                        "created_at": metadata.get("created_at", ""),
-                        "file_size": metadata.get("file_size", file_path.stat().st_size),
-                        "path": str(file_path)
+                        "folder_name": folder.name,
+                        "folder_path": str(folder),
+                        "stock_code": metadata.get("stock_code"),
+                        "timestamp": metadata.get("timestamp"),
+                        "final_decision": metadata.get("final_decision"),
+                        "created_at": metadata.get("created_at"),
+                        "analysis_duration": metadata.get("analysis_duration")
                     })
-                    
-            except Exception as e:
-                logger.error(f"列出{rtype}报告失败: {str(e)}")
-                continue
+            
+        except Exception as e:
+            logger.error(f"列出分析报告失败: {str(e)}")
         
-        # 按创建时间排序
-        reports.sort(key=lambda x: x["created_at"], reverse=True)
-        return reports[:limit]
+        return reports
     
-    def cleanup_old_reports(self) -> Dict[str, int]:
+    def cleanup_old_reports(self):
         """清理过期报告"""
-        cleanup_stats = {"deleted_files": 0, "saved_space": 0}
-        
         try:
-            cutoff_time = datetime.now() - timedelta(days=self.retention_days)
+            cutoff_date = datetime.now() - timedelta(days=self.retention_days)
+            deleted_count = 0
             
-            for report_type in self.report_types.keys():
-                subdir = self.report_types[report_type]["subdir"]
-                type_path = self.base_dir / subdir
+            for folder in self.base_dir.iterdir():
+                if folder.is_dir():
+                    folder_time = datetime.fromtimestamp(folder.stat().st_mtime)
+                    if folder_time < cutoff_date:
+                        import shutil
+                        shutil.rmtree(folder)
+                        deleted_count += 1
+            
+            if deleted_count > 0:
+                logger.info(f"清理了 {deleted_count} 个过期报告文件夹")
                 
-                if not type_path.exists():
-                    continue
-                
-                for file_path in type_path.glob("*"):
-                    if file_path.is_file():
-                        file_time = datetime.fromtimestamp(file_path.stat().st_mtime)
-                        
-                        if file_time < cutoff_time:
-                            try:
-                                file_size = file_path.stat().st_size
-                                file_path.unlink()
-                                cleanup_stats["deleted_files"] += 1
-                                cleanup_stats["saved_space"] += file_size
-                            except Exception as e:
-                                logger.warning(f"删除文件失败: {file_path}, {str(e)}")
-            
-            if cleanup_stats["deleted_files"] > 0:
-                logger.info(f"清理完成: 删除 {cleanup_stats['deleted_files']} 个文件, "
-                           f"节省 {cleanup_stats['saved_space']} 字节")
-            
         except Exception as e:
             logger.error(f"清理过期报告失败: {str(e)}")
-        
-        return cleanup_stats
-    
-    def get_storage_stats(self) -> Dict[str, Any]:
-        """获取存储统计信息"""
-        stats = {
-            "total_files": 0,
-            "total_size": 0,
-            "by_type": {}
-        }
-        
-        try:
-            for report_type in self.report_types.keys():
-                subdir = self.report_types[report_type]["subdir"]
-                type_path = self.base_dir / subdir
-                
-                if not type_path.exists():
-                    stats["by_type"][report_type] = {
-                        "file_count": 0,
-                        "total_size": 0
-                    }
-                    continue
-                
-                files = [f for f in type_path.glob("*") if f.is_file()]
-                file_count = len(files)
-                total_size = sum(f.stat().st_size for f in files)
-                
-                stats["by_type"][report_type] = {
-                    "file_count": file_count,
-                    "total_size": total_size,
-                    "avg_size": total_size / file_count if file_count > 0 else 0
-                }
-                
-                stats["total_files"] += file_count
-                stats["total_size"] += total_size
-            
-            return stats
-            
-        except Exception as e:
-            logger.error(f"获取存储统计失败: {str(e)}")
-            return {"error": str(e)}
-    
-    def find_reports_by_stock(self, stock_code: str) -> List[Dict]:
-        """查找特定股票的所有报告"""
-        all_reports = self.list_reports(limit=100)
-        return [r for r in all_reports if r["stock_code"] == stock_code]
-    
-    def get_latest_report(self, stock_code: str, report_type: str | None = None) -> Optional[Dict]:
-        """获取最新的报告"""
-        if report_type:
-            reports = self.list_reports(report_type=report_type, limit=50)
-        else:
-            reports = self.list_reports(limit=50)
-        
-        stock_reports = [r for r in reports if r["stock_code"] == stock_code]
-        return stock_reports[0] if stock_reports else None
 
+    # 保留旧版本兼容性方法
+    def save_debate_report(self, stock_code: str, debate_data: Dict, 
+                          metadata: Optional[Dict] = None) -> bool:
+        """保存辩论对话JSON（兼容性方法）"""
+        logger.warning("save_debate_report 已废弃，请使用 save_analysis_report")
+        return True
+    
+    def save_vote_report(self, stock_code: str, vote_data: Dict, 
+                        metadata: Optional[Dict] = None) -> bool:
+        """保存投票结果JSON（兼容性方法）"""
+        logger.warning("save_vote_report 已废弃，请使用 save_analysis_report")
+        return True
+
+    def save_analysis_data(self, stock_code: str, analysis_data: Dict,
+                           metadata: Optional[Dict] = None) -> bool:
+        """保存完整分析数据JSON（兼容性方法）"""
+        logger.warning("save_analysis_data 已废弃，请使用 save_analysis_report")
 
 # 全局报告管理器实例
-report_manager = SimpleReportManager()
-
-
-# 便捷函数
-def save_html_report(stock_code: str, html_content: str, 
-                    metadata: Optional[Dict] = None) -> bool:
-    """保存HTML报告的便捷函数"""
-    return report_manager.save_html_report(stock_code, html_content, metadata)
-
-
-def save_debate_report(stock_code: str, debate_data: Dict, 
-                      metadata: Optional[Dict] = None) -> bool:
-    """保存辩论对话的便捷函数"""
-    return report_manager.save_debate_report(stock_code, debate_data, metadata)
-
-
-def save_vote_report(stock_code: str, vote_data: Dict, 
-                    metadata: Optional[Dict] = None) -> bool:
-    """保存投票结果的便捷函数"""
-    return report_manager.save_vote_report(stock_code, vote_data, metadata)
-
-
-def get_stock_reports(stock_code: str) -> List[Dict]:
-    """获取特定股票的所有报告"""
-    return report_manager.find_reports_by_stock(stock_code)
-
-
-def cleanup_reports() -> Dict[str, int]:
-    """清理过期报告"""
-    return report_manager.cleanup_old_reports() 
+report_manager = EnhancedReportManager()

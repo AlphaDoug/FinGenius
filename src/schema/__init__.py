@@ -1,8 +1,14 @@
+"""
+Schema definitions for FinGenius
+"""
+
 from enum import Enum
 from typing import Any, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
+
+# ===== 原始 schema 定义 =====
 
 class Role(str, Enum):
     """Message role options"""
@@ -88,7 +94,6 @@ class Message(BaseModel):
             message["content"] = self.content
         if self.tool_calls is not None:
             message["tool_calls"] = [
-                # Handle both Pydantic model objects and plain dictionaries
                 tool_call.model_dump()
                 if hasattr(tool_call, "model_dump")
                 else (tool_call.dict() if hasattr(tool_call, "dict") else tool_call)
@@ -144,13 +149,7 @@ class Message(BaseModel):
         base64_image: Optional[str] = None,
         **kwargs,
     ):
-        """Create ToolCallsMessage from raw tool calls.
-
-        Args:
-            tool_calls: Raw tool calls from LLM
-            content: Optional message content
-            base64_image: Optional base64 encoded image
-        """
+        """Create ToolCallsMessage from raw tool calls."""
         formatted_calls = [
             {"id": call.id, "function": call.function.model_dump(), "type": "function"}
             for call in tool_calls
@@ -171,14 +170,12 @@ class Memory(BaseModel):
     def add_message(self, message: Message) -> None:
         """Add a message to memory"""
         self.messages.append(message)
-        # Optional: Implement message limit
         if len(self.messages) > self.max_messages:
             self.messages = self.messages[-self.max_messages :]
 
     def add_messages(self, messages: List[Message]) -> None:
         """Add multiple messages to memory"""
         self.messages.extend(messages)
-        # Optional: Implement message limit
         if len(self.messages) > self.max_messages:
             self.messages = self.messages[-self.max_messages :]
 
@@ -193,3 +190,38 @@ class Memory(BaseModel):
     def to_dict_list(self) -> List[dict]:
         """Convert messages to list of dicts"""
         return [msg.to_dict() for msg in self.messages]
+
+
+# ===== 新增的专家总结相关schema =====
+from .expert_summary import (
+    ExpertSummary,
+    StockBasicInfo,
+    VotingResults,
+    DebateSummary,
+    DebateRound,
+    DebateSpeech,
+    AnalysisReport
+)
+
+__all__ = [
+    # 原始schema
+    "Role",
+    "ROLE_VALUES",
+    "ROLE_TYPE",
+    "ToolChoice",
+    "TOOL_CHOICE_VALUES",
+    "TOOL_CHOICE_TYPE",
+    "AgentState",
+    "Function",
+    "ToolCall",
+    "Message",
+    "Memory",
+    # 新增schema
+    "ExpertSummary",
+    "StockBasicInfo",
+    "VotingResults",
+    "DebateSummary",
+    "DebateRound",
+    "DebateSpeech",
+    "AnalysisReport",
+]

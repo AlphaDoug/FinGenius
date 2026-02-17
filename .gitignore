@@ -5,6 +5,10 @@ logs/
 # Workspace
 workspace/
 
+# Report output
+report/
+analysis_reports/
+
 ### Python ###
 # Byte-compiled / optimized / DLL files
 __pycache__/

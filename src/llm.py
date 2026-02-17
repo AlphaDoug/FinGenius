@@ -716,7 +716,10 @@ class LLM:
             if self.model in REASONING_MODELS:
                 params["max_completion_tokens"] = self.max_tokens
             else:
-                params["max_tokens"] = self.max_tokens
+                # DeepSeek 等 API 在 tool calling 时对 max_tokens 有更严格的限制（最大 8192）
+                # 当配置值超出限制时自动裁剪
+                tool_max_tokens = min(self.max_tokens, 8192)
+                params["max_tokens"] = tool_max_tokens
                 params["temperature"] = (
                     temperature if temperature is not None else self.temperature
                 )

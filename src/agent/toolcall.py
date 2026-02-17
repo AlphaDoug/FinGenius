@@ -42,6 +42,7 @@ class ToolCallAgent(ReActAgent):
 
     tool_calls: List[ToolCall] = Field(default_factory=list)
     _current_base64_image: Optional[str] = None
+    _last_think_content: str = ""
 
     max_steps: int = 30
     current_step: int = 0
@@ -88,6 +89,9 @@ class ToolCallAgent(ReActAgent):
             response.tool_calls if response and response.tool_calls else []
         )
         content = response.content if response and response.content else ""
+
+        # 保存 LLM 的分析思考内容，供 step() 合并返回
+        self._last_think_content = content
 
         # Log response info
         logger.info(f"✨ {self.name}'s thoughts: {content}")
@@ -179,6 +183,19 @@ class ToolCallAgent(ReActAgent):
             results.append(result)
 
         return "\n\n".join(results)
+
+    async def step(self) -> str:
+        """Execute a single step: think and act, preserving LLM analysis content."""
+        self._last_think_content = ""
+        should_act = await self.think()
+        if not should_act:
+            return "Thinking complete - no action needed"
+        act_result = await self.act()
+        # 当 LLM 同时产出分析文本和工具调用时，将分析文本附加到结果前面
+        # 这确保 agent 的分析结论不会因为只返回工具结果而丢失
+        if self._last_think_content and self.tool_calls:
+            return f"{self._last_think_content}\n\n{act_result}"
+        return act_result
 
     async def execute_tool(self, command: ToolCall) -> str:
         """Execute a single tool call with robust error handling"""

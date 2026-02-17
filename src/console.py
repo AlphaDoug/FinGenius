@@ -1,3 +1,5 @@
+import io
+import sys
 import json
 from typing import Any, Dict, List, Optional
 from rich.console import Console
@@ -15,7 +17,12 @@ from rich.layout import Layout
 from rich.markdown import Markdown
 import time
 
-console = Console()
+# Windows GBK 控制台无法显示 emoji，强制使用 UTF-8 输出
+if sys.platform == "win32":
+    _utf8_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    console = Console(file=_utf8_stdout, force_terminal=True)
+else:
+    console = Console()
 
 class FinGeniusVisualizer:
     """Enhanced visualizer for FinGenius analysis process"""

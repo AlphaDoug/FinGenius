@@ -110,6 +110,15 @@ class TushareSettings(BaseModel):
     token: str = Field("", description="Tushare Token，注册后在个人中心获取")
 
 
+class FeishuSettings(BaseModel):
+    """飞书机器人配置"""
+
+    webhook_url: str = Field("", description="群自定义机器人 Webhook 地址")
+    webhook_secret: str = Field("", description="Webhook 签名密钥")
+    app_id: str = Field("", description="企业应用 App ID")
+    app_secret: str = Field("", description="企业应用 App Secret")
+
+
 class MCPServerConfig(BaseModel):
     """Configuration for a single MCP server"""
 
@@ -168,6 +177,7 @@ class AppConfig(BaseModel):
     mcp_config: Optional[MCPSettings] = Field(None, description="MCP configuration")
     tts_config: Optional[TTSSettings] = Field(None, description="TTS configuration")
     tushare_config: Optional[TushareSettings] = Field(None, description="Tushare configuration")
+    feishu_config: Optional[FeishuSettings] = Field(None, description="Feishu bot configuration")
 
     class Config:
         arbitrary_types_allowed = True
@@ -287,6 +297,10 @@ class Config:
         tushare_config = raw_config.get("tushare", {})
         tushare_settings = TushareSettings(**tushare_config) if tushare_config else TushareSettings()
 
+        # 加载飞书配置
+        feishu_config = raw_config.get("feishu", {})
+        feishu_settings = FeishuSettings(**feishu_config) if feishu_config else FeishuSettings()
+
         config_dict = {
             "llm": {
                 "default": default_settings,
@@ -300,6 +314,7 @@ class Config:
             "mcp_config": mcp_settings,
             "tts_config": tts_settings,
             "tushare_config": tushare_settings,
+            "feishu_config": feishu_settings,
         }
 
         self._config = AppConfig(**config_dict)
@@ -330,6 +345,11 @@ class Config:
     def tushare_config(self) -> TushareSettings:
         """获取Tushare配置"""
         return self._config.tushare_config
+
+    @property
+    def feishu_config(self) -> FeishuSettings:
+        """获取飞书机器人配置"""
+        return self._config.feishu_config
 
     @property
     def workspace_root(self) -> Path:

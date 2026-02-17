@@ -28,3 +28,4 @@ schedule~=1.2.2
 uvicorn
 starlette
 rich~=13.7.1
+lark-oapi>=1.4.0
