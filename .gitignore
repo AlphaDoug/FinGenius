@@ -1,4 +1,7 @@
 ### Project-specific ###
+# Config with real secrets (use config.example.toml as template)
+config/config.toml
+
 # Logs
 logs/
 
@@ -8,6 +11,11 @@ workspace/
 # Report output
 report/
 analysis_reports/
+
+# Cache and test artifacts
+cache/
+test_data/
+test_err.log
 
 ### Python ###
 # Byte-compiled / optimized / DLL files
