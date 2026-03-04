@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 股票基本信息获取
-数据源降级链: efinance → akshare全市场快照 → tushare(daily_basic/fina_indicator, 2000积分) → 默认值
+数据源降级链: efinance → akshare全市场快照 → tushare(stock_basic+daily_basic+fina_indicator) → 默认值
 对应原工程: src/tool/stock_info_request.py + market_data_provider.get_base_info
 """
 
@@ -44,7 +44,12 @@ def _init_tushare(token=None):
 
 def _to_ts_code(stock_code):
     """将6位股票代码转为tushare格式"""
-    c = stock_code.lstrip("shsz")
+    # 去掉可能的前缀 sh/sz，注意不能用 lstrip 因为它会逐字符剥离
+    c = stock_code
+    for prefix in ("sh", "sz", "SH", "SZ"):
+        if c.startswith(prefix):
+            c = c[len(prefix):]
+            break
     return f"{c}.SH" if c.startswith("6") else f"{c}.SZ"
 
 
@@ -107,35 +112,63 @@ def get_stock_basic_info(stock_code):
     if _pro is not None:
         try:
             ts_code = _to_ts_code(stock_code)
-            # daily_basic 获取市值/PE/PB
-            df_basic = _pro.daily_basic(ts_code=ts_code)
-            basic_info = {}
-            if isinstance(df_basic, pd.DataFrame) and not df_basic.empty:
-                row = df_basic.iloc[0]
-                basic_info = {
-                    "market_cap": str(round(float(row.get("total_mv", 0) or 0) / 10000, 2)) + "亿",
-                    "pe_ratio": str(row.get("pe", "未知")),
-                    "pb_ratio": str(row.get("pb", "未知")),
-                }
 
-            # fina_indicator 获取ROE/毛利率
+            # stock_basic 获取股票名称和行业（仅需120积分）
+            stock_name = "未知"
+            industry = "未知"
+            try:
+                df_stock = _pro.stock_basic(
+                    ts_code=ts_code,
+                    fields="ts_code,name,industry",
+                )
+                if isinstance(df_stock, pd.DataFrame) and not df_stock.empty:
+                    row = df_stock.iloc[0]
+                    stock_name = str(row.get("name", "未知"))
+                    industry = str(row.get("industry", "未知"))
+            except Exception as e:
+                print(f"[tushare] stock_basic 失败: {e}", file=sys.stderr)
+
+            # daily_basic 获取市值/PE/PB（需要2000积分）
+            # 注意：ts_code 和 trade_date 是二选一参数，按 ts_code 查询可获取历史数据
+            basic_info = {}
+            try:
+                df_basic = _pro.daily_basic(
+                    ts_code=ts_code,
+                    fields="ts_code,trade_date,pe,pe_ttm,pb,total_mv,circ_mv",
+                )
+                if isinstance(df_basic, pd.DataFrame) and not df_basic.empty:
+                    row = df_basic.iloc[0]  # 最近一个交易日
+                    total_mv = row.get("total_mv", 0) or 0
+                    basic_info = {
+                        "market_cap": str(round(float(total_mv) / 10000, 2)) + "亿",
+                        "pe_ratio": str(row.get("pe_ttm") or row.get("pe") or "未知"),
+                        "pb_ratio": str(row.get("pb", "未知")),
+                    }
+            except Exception as e:
+                print(f"[tushare] daily_basic 失败: {e}", file=sys.stderr)
+
+            # fina_indicator 获取ROE/毛利率（需要2000积分）
             fina_info = {}
             try:
-                df_fina = _pro.fina_indicator(ts_code=ts_code)
+                df_fina = _pro.fina_indicator(
+                    ts_code=ts_code,
+                    fields="ts_code,end_date,roe,grossprofit_margin",
+                )
                 if isinstance(df_fina, pd.DataFrame) and not df_fina.empty:
-                    row = df_fina.iloc[0]
+                    row = df_fina.iloc[0]  # 最新一期财报
                     fina_info = {
                         "roe": str(row.get("roe", "未知")),
                         "gross_margin": str(row.get("grossprofit_margin", "未知")),
                     }
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[tushare] fina_indicator 失败: {e}", file=sys.stderr)
 
-            if basic_info or fina_info:
+            # 只要有任何一个接口成功就返回
+            if stock_name != "未知" or basic_info or fina_info:
                 return {
                     "stock_code": stock_code,
-                    "stock_name": "未知(tushare)",
-                    "industry": "未知",
+                    "stock_name": stock_name,
+                    "industry": industry,
                     "market_cap": basic_info.get("market_cap", "未知"),
                     "pe_ratio": basic_info.get("pe_ratio", "未知"),
                     "pb_ratio": basic_info.get("pb_ratio", "未知"),
