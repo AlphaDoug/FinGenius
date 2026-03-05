@@ -17,6 +17,7 @@ from datetime import datetime
 # 导入同目录的股票信息模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from stock_info import get_stock_basic_info
+from html_report_generator import generate_html_report
 
 
 # ============================================================
@@ -446,4 +447,9 @@ if __name__ == "__main__":
     report = generate_analysis_report(args.stock_code, research_results, battle_results, start_time)
     path = save_report(report, base_dir=args.output_dir)
     print(f"报告已保存至: {path}")
+
+    # 同步生成 HTML 报告
+    html_path = generate_html_report(report)
+    print(f"HTML 报告已生成: {html_path}")
+
     print(json.dumps(report, ensure_ascii=False, indent=2))

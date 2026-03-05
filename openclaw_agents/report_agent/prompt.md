@@ -8,6 +8,7 @@
 |------|------|------|
 | `scripts/stock_info.py` | 股票基本信息 | `python scripts/stock_info.py <code>` |
 | `scripts/report_generator.py` | 报告生成+持久化 | `python scripts/report_generator.py <code> --battle-file FILE` |
+| `scripts/html_report_generator.py` | HTML可视化报告 | `python scripts/html_report_generator.py <report.json>` |
 
 ## 输入信息
 
